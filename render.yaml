@@ -1,0 +1,21 @@
+```yaml
+services:
+  - type: web
+    name: doki-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DOKI_VERSION
+        value: "1.0"
+      - key: LLM_BACKEND
+        value: "openai_compatible"
+      - key: LLM_BASE_URL
+        value: "https://api.groq.com/openai"
+      - key: LLM_MODEL
+        value: "llama-3.1-8b-instant"
+      - key: ENVIRONMENT
+        value: "production"
+```
