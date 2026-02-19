@@ -9,6 +9,3 @@ sqlalchemy
 aiosqlite
 httpx
 python-dotenv
-slowapi
-better-profanity
-email-validator
