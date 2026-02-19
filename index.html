@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doki — Sua IA de Estudos</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black:     #0a0a0a;
+  --black2:    #111111;
+  --black3:    #1a1a1a;
+  --black4:    #242424;
+  --border:    #2a2a2a;
+  --border2:   #363636;
+  --white:     #f5f0eb;
+  --cream:     #d4c9b8;
+  --gold:      #c9a96e;
+  --gold2:     #e8c98a;
+  --gold-glow: rgba(201,169,110,0.13);
+  --text:      #ede8e0;
+  --text-soft: #9a9080;
+  --text-muted:#504840;
+  --danger:    #f87171;
+  --r:         14px;
+  --font-d: 'Playfair Display', Georgia, serif;
+  --font-b: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;font-family:var(--font-b);background:var(--black);color:var(--text);-webkit-font-smoothing:antialiased}
+
+/* ── Cursor pata ── */
+*{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 22 22'%3E%3Cellipse cx='11' cy='15' rx='4.5' ry='3.8' fill='%23c9a96e'/%3E%3Ccircle cx='6.5' cy='9' r='2' fill='%23c9a96e'/%3E%3Ccircle cx='11' cy='7.5' r='2' fill='%23c9a96e'/%3E%3Ccircle cx='15.5' cy='9' r='2' fill='%23c9a96e'/%3E%3C/svg%3E") 11 19, auto}
+button,a,textarea,[onclick]{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 22 22'%3E%3Cellipse cx='11' cy='15' rx='4.5' ry='3.8' fill='%23e8c98a'/%3E%3Ccircle cx='6.5' cy='9' r='2' fill='%23e8c98a'/%3E%3Ccircle cx='11' cy='7.5' r='2' fill='%23e8c98a'/%3E%3Ccircle cx='15.5' cy='9' r='2' fill='%23e8c98a'/%3E%3C/svg%3E") 11 19, pointer}
+
+/* ── Layout ── */
+.app{display:flex;height:100vh;width:100vw;position:relative}
+.paw-bg{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:0}
+.paw-float{position:absolute;opacity:0;animation:paw-drift linear infinite}
+@keyframes paw-drift{
+  from{transform:translateY(105vh) rotate(0);opacity:0}
+  8%{opacity:0.035}
+  92%{opacity:0.035}
+  to{transform:translateY(-80px) rotate(400deg);opacity:0}
+}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:90}
+.overlay.show{display:block}
+
+/* ═══════ SIDEBAR ═══════ */
+.sidebar{
+  width:272px;min-width:272px;
+  background:var(--black2);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  flex-shrink:0;
+  transition:width .3s cubic-bezier(.4,0,.2,1),min-width .3s;
+  overflow:hidden;z-index:10;
+}
+.sidebar.collapsed{width:0;min-width:0}
+
+.sidebar-logo{
+  padding:18px 16px 14px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:12px;flex-shrink:0;
+}
+.logo-svg{width:44px;height:44px;flex-shrink:0;animation:logo-glow 4s ease-in-out infinite}
+@keyframes logo-glow{
+  0%,100%{filter:drop-shadow(0 0 5px rgba(201,169,110,.3))}
+  50%{filter:drop-shadow(0 0 16px rgba(201,169,110,.65))}
+}
+.logo-text-wrap .logo-name{
+  font-family:var(--font-d);font-size:22px;font-weight:900;
+  color:var(--gold);line-height:1;white-space:nowrap;
+}
+.logo-text-wrap .logo-ver{
+  font-size:10px;color:var(--text-muted);letter-spacing:.14em;
+  text-transform:uppercase;margin-top:2px;white-space:nowrap;
+}
+
+.btn-new{
+  margin:12px 12px 8px;
+  padding:10px 14px;
+  background:var(--black3);border:1px solid var(--border2);
+  border-radius:var(--r);color:var(--text);font-family:var(--font-b);
+  font-size:13px;font-weight:500;
+  display:flex;align-items:center;gap:9px;
+  transition:all .18s;white-space:nowrap;
+}
+.btn-new:hover{background:var(--black4);border-color:var(--gold);color:var(--gold)}
+.btn-new svg{width:15px;height:15px;flex-shrink:0}
+
+.sec-label{
+  font-size:10px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--text-muted);padding:12px 16px 6px;white-space:nowrap;
+}
+
+/* Expertise */
+.exp-list{padding:0 10px}
+.exp-item{
+  padding:8px 8px;border-radius:10px;background:var(--black3);
+  border:1px solid transparent;margin-bottom:5px;
+  display:flex;align-items:center;gap:8px;transition:border-color .15s;
+  white-space:nowrap;
+}
+.exp-item:hover{border-color:var(--border2)}
+.exp-icon{font-size:15px;flex-shrink:0}
+.exp-info{flex:1;min-width:0;overflow:hidden}
+.exp-name{font-size:11.5px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis}
+.exp-bar-wrap{height:3px;background:var(--black4);border-radius:2px;margin-top:4px;overflow:hidden}
+.exp-bar{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));transition:width 1s cubic-bezier(.4,0,.2,1)}
+.exp-lvl{font-size:10px;color:var(--text-muted);flex-shrink:0}
+
+/* Conv list */
+.conv-list{flex:1;overflow-y:auto;padding:4px 10px}
+.conv-list::-webkit-scrollbar{width:3px}
+.conv-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.conv-item{
+  padding:8px 10px;border-radius:10px;font-size:12.5px;color:var(--text-soft);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:all .15s;display:flex;align-items:center;gap:8px;margin-bottom:2px;
+}
+.conv-item:hover{background:var(--black3);color:var(--text)}
+.conv-item.active{background:var(--black3);color:var(--text);border-left:2px solid var(--gold);padding-left:8px}
+
+/* Footer */
+.sb-footer{
+  padding:12px 14px;border-top:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;flex-shrink:0;
+}
+.user-av{
+  width:34px;height:34px;border-radius:50%;flex-shrink:0;
+  background:linear-gradient(135deg,var(--gold),#8c6030);
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:14px;color:var(--black);
+}
+.user-info{min-width:0;flex:1;overflow:hidden}
+.user-name{font-size:12.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-plan{font-size:10.5px;color:var(--text-muted)}
+
+/* ═══════ MAIN ═══════ */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;z-index:1}
+
+.topbar{
+  height:52px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 16px;gap:12px;
+  background:var(--black2);flex-shrink:0;
+}
+.btn-toggle{
+  width:34px;height:34px;border-radius:8px;background:transparent;
+  border:1px solid transparent;color:var(--text-soft);
+  display:flex;align-items:center;justify-content:center;transition:all .18s;flex-shrink:0;
+}
+.btn-toggle:hover{background:var(--black3);border-color:var(--border2);color:var(--text)}
+.btn-toggle svg{width:18px;height:18px}
+.topbar-title{font-family:var(--font-d);font-size:16px;color:var(--gold);font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topbar-badge{
+  font-size:10px;padding:3px 9px;
+  background:var(--gold-glow);border:1px solid rgba(201,169,110,.25);
+  border-radius:20px;color:var(--gold);letter-spacing:.1em;text-transform:uppercase;
+  white-space:nowrap;flex-shrink:0;
+}
+
+/* ── Chat area ── */
+.chat-area{flex:1;overflow-y:auto;display:flex;flex-direction:column;position:relative}
+.chat-area::-webkit-scrollbar{width:4px}
+.chat-area::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* Welcome */
+.welcome{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:40px 20px;text-align:center;animation:fadeUp .5s ease both;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+
+.mascot-wrap{position:relative;margin-bottom:28px;width:110px;height:110px;margin-left:auto;margin-right:auto}
+.mascot-svg{width:110px;height:110px;animation:float 3.5s ease-in-out infinite;display:block}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
+.mascot-ring{position:absolute;border-radius:50%;border:1.5px solid rgba(201,169,110,.18);animation:rspin 12s linear infinite}
+.mascot-ring:nth-child(2){inset:-10px}
+.mascot-ring:nth-child(3){inset:-22px;border-style:dashed;border-width:1px;border-color:rgba(201,169,110,.1);animation-duration:22s;animation-direction:reverse}
+@keyframes rspin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+
+.welcome h2{font-family:var(--font-d);font-size:clamp(24px,3.5vw,34px);font-weight:900;color:var(--white);margin-bottom:10px}
+.welcome h2 em{color:var(--gold);font-style:normal}
+.welcome p{font-size:14px;color:var(--text-soft);max-width:400px;line-height:1.65;margin-bottom:30px}
+
+.chips{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;max-width:580px}
+.chip{
+  padding:8px 14px;background:var(--black3);border:1px solid var(--border2);
+  border-radius:100px;font-size:12.5px;color:var(--text-soft);
+  display:flex;align-items:center;gap:6px;transition:all .18s;
+}
+.chip:hover{background:var(--black4);border-color:var(--gold);color:var(--gold);transform:translateY(-1px)}
+
+/* Messages */
+.messages{
+  display:flex;flex-direction:column;gap:0;
+  max-width:800px;width:100%;margin:0 auto;padding:20px 20px 8px;
+}
+.msg-row{padding:18px 0;animation:msgIn .28s ease both}
+@keyframes msgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.msg-row+.msg-row{border-top:1px solid rgba(255,255,255,.04)}
+
+/* User bubble */
+.msg-user{display:flex;justify-content:flex-end}
+.bubble-user{
+  max-width:70%;background:var(--black4);border:1px solid var(--border2);
+  border-radius:18px 18px 4px 18px;padding:11px 15px;
+  font-size:14px;line-height:1.6;color:var(--text);word-break:break-word;
+}
+
+/* Doki message */
+.msg-doki{display:flex;flex-direction:column;gap:0}
+.doki-hdr{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.doki-av{width:28px;height:28px;flex-shrink:0}
+.doki-av svg{width:100%;height:100%}
+.doki-nm{font-family:var(--font-d);font-size:13px;font-weight:700;color:var(--gold)}
+.subj-tag{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:10.5px;padding:3px 9px;
+  background:var(--gold-glow);border:1px solid rgba(201,169,110,.22);
+  border-radius:20px;color:var(--gold);margin-bottom:8px;width:fit-content;
+}
+.doki-body{padding-left:37px;font-size:14px;line-height:1.78;color:var(--text);word-break:break-word}
+.doki-body h2,.doki-body h3{font-family:var(--font-d);color:var(--gold2);margin:14px 0 7px;font-weight:700}
+.doki-body h2{font-size:16.5px}
+.doki-body h3{font-size:14px}
+.doki-body strong{color:var(--white);font-weight:600}
+.doki-body em{color:var(--cream);font-style:italic}
+.doki-body code{background:var(--black3);border:1px solid var(--border2);border-radius:5px;padding:1px 6px;font-family:'Cascadia Code','Fira Code',monospace;font-size:12.5px;color:var(--gold2)}
+.doki-body pre{background:var(--black3);border:1px solid var(--border2);border-radius:10px;padding:13px 15px;overflow-x:auto;margin:10px 0}
+.doki-body pre code{background:none;border:none;padding:0;font-size:13px;color:var(--cream)}
+.doki-body blockquote{border-left:3px solid var(--gold);padding:7px 13px;background:var(--gold-glow);border-radius:0 8px 8px 0;margin:10px 0;color:var(--cream);font-style:italic}
+.doki-body ul,.doki-body ol{padding-left:20px;margin:8px 0}
+.doki-body li{margin-bottom:3px}
+.doki-body table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}
+.doki-body th{background:var(--black3);padding:7px 11px;text-align:left;font-weight:600;color:var(--gold2);border-bottom:1px solid var(--border2)}
+.doki-body td{padding:6px 11px;border-bottom:1px solid var(--border);color:var(--text-soft)}
+.doki-body tr:hover td{background:var(--black3)}
+.blocked{background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2);border-radius:10px;padding:10px 13px;font-size:13px;color:var(--danger)}
+
+/* Typing */
+.typing-wrap{padding-left:37px;display:flex;align-items:center;gap:5px;margin-top:4px}
+.t-dot{width:7px;height:7px;border-radius:50%;background:var(--gold);opacity:.45;animation:tdot 1.2s ease-in-out infinite}
+.t-dot:nth-child(2){animation-delay:.2s}
+.t-dot:nth-child(3){animation-delay:.4s}
+@keyframes tdot{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-5px);opacity:1}}
+
+/* ── Input ── */
+.input-zone{padding:10px 18px 18px;background:var(--black2);border-top:1px solid var(--border);flex-shrink:0}
+.input-inner{max-width:800px;margin:0 auto;position:relative}
+.input-box{
+  width:100%;background:var(--black3);border:1px solid var(--border2);
+  border-radius:16px;padding:13px 52px 13px 17px;
+  font-family:var(--font-b);font-size:14px;color:var(--text);
+  resize:none;outline:none;min-height:50px;max-height:190px;line-height:1.5;
+  transition:border-color .2s,box-shadow .2s;
+}
+.input-box::placeholder{color:var(--text-muted)}
+.input-box:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-glow)}
+.btn-send{
+  position:absolute;right:7px;bottom:7px;width:36px;height:36px;
+  border-radius:10px;background:var(--gold);border:none;
+  color:var(--black);font-size:16px;
+  display:flex;align-items:center;justify-content:center;transition:all .18s;
+}
+.btn-send:hover{background:var(--gold2);transform:scale(1.06)}
+.btn-send:disabled{background:var(--border2);color:var(--text-muted);transform:none}
+.btn-send svg{width:15px;height:15px}
+.input-note{text-align:center;font-size:11px;color:var(--text-muted);margin-top:7px}
+.input-note b{color:var(--gold);opacity:.7;font-weight:500}
+
+/* ── Mobile ── */
+@media(max-width:640px){
+  .sidebar{position:fixed;top:0;left:0;height:100vh;z-index:100;transform:translateX(-100%);transition:transform .3s}
+  .sidebar.mob-open{transform:translateX(0)}
+  .sidebar.collapsed{width:272px;min-width:272px;transform:translateX(-100%)}
+}
+</style>
+</head>
+<body>
+
+<div class="paw-bg" id="pawBg"></div>
+<div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+<div class="app">
+
+<!-- ══════════════ SIDEBAR ══════════════ -->
+<aside class="sidebar" id="sidebar">
+
+  <div class="sidebar-logo">
+    <!-- Shih Tzu Logo SVG - virado de lateral, patinha direita dobrada -->
+    <svg class="logo-svg" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Corpo -->
+      <ellipse cx="30" cy="40" rx="17" ry="11" fill="#c9a96e"/>
+      <!-- Cabeça (lateral direita) -->
+      <circle cx="44" cy="27" r="12" fill="#e8c98a"/>
+      <!-- Orelhas shih tzu longas -->
+      <ellipse cx="36" cy="18" rx="5.5" ry="11" fill="#c9a96e" transform="rotate(-18 36 18)"/>
+      <ellipse cx="52" cy="18" rx="5.5" ry="11" fill="#c9a96e" transform="rotate(18 52 18)"/>
+      <!-- Cara clara -->
+      <circle cx="44" cy="28" r="8" fill="#f0e0c0"/>
+      <!-- Olhos -->
+      <circle cx="41" cy="26" r="2.3" fill="#140600"/>
+      <circle cx="47" cy="26" r="2.3" fill="#140600"/>
+      <circle cx="41.7" cy="25.3" r="0.75" fill="white"/>
+      <circle cx="47.7" cy="25.3" r="0.75" fill="white"/>
+      <!-- Nariz -->
+      <ellipse cx="44" cy="30" rx="2.1" ry="1.5" fill="#2d0d00"/>
+      <!-- Boca -->
+      <path d="M42 32 Q44 33.5 46 32" stroke="#2d0d00" stroke-width=".9" fill="none" stroke-linecap="round"/>
+      <!-- Bigodes -->
+      <line x1="38" y1="30.5" x2="42" y2="30" stroke="#aaa" stroke-width=".6" opacity=".45"/>
+      <line x1="46" y1="30" x2="50" y2="30.5" stroke="#aaa" stroke-width=".6" opacity=".45"/>
+      <!-- Patas traseiras e esquerda frente -->
+      <rect x="16" y="46" width="7" height="11" rx="3.5" fill="#c9a96e"/>
+      <rect x="26" y="47" width="7" height="10" rx="3.5" fill="#c9a96e"/>
+      <!-- PATA DIREITA DOBRADA (levantada, joelho em ângulo) -->
+      <path d="M37 43 L44 37 L52 41" stroke="#c9a96e" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <ellipse cx="52" cy="42" rx="4" ry="3.5" fill="#c9a96e"/>
+      <!-- Dedos da pata -->
+      <circle cx="49" cy="45" r="2" fill="#b8895a"/>
+      <circle cx="53" cy="45.5" r="2" fill="#b8895a"/>
+      <circle cx="56" cy="43" r="2" fill="#b8895a"/>
+      <!-- Cauda enrolada para cima -->
+      <path d="M13 37 Q4 26 7 17 Q10 8 16 10" stroke="#c9a96e" stroke-width="5.5" stroke-linecap="round" fill="none"/>
+      <!-- Coleira dourada -->
+      <path d="M22 36 Q34 31 46 35" stroke="#e8c98a" stroke-width="2.2" fill="none" stroke-linecap="round" opacity=".8"/>
+      <circle cx="34" cy="37.5" r="2.2" fill="#e8c98a" opacity=".9"/>
+    </svg>
+    <div class="logo-text-wrap">
+      <div class="logo-name">Doki</div>
+      <div class="logo-ver">v1.0 · IA de Estudos</div>
+    </div>
+  </div>
+
+  <button class="btn-new" onclick="newChat()">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <line x1="10" y1="3" x2="10" y2="17"/><line x1="3" y1="10" x2="17" y2="10"/>
+    </svg>
+    Novo chat
+  </button>
+
+  <div class="sec-label">Suas especialidades</div>
+  <div class="exp-list" id="expList">
+    <div class="exp-item"><span class="exp-icon">📐</span><div class="exp-info"><div class="exp-name">Matemática</div><div class="exp-bar-wrap"><div class="exp-bar" style="width:0%" data-target="68"></div></div></div><span class="exp-lvl">Avançado</span></div>
+    <div class="exp-item"><span class="exp-icon">💻</span><div class="exp-info"><div class="exp-name">Programação</div><div class="exp-bar-wrap"><div class="exp-bar" style="width:0%" data-target="42"></div></div></div><span class="exp-lvl">Interm.</span></div>
+    <div class="exp-item"><span class="exp-icon">⚛️</span><div class="exp-info"><div class="exp-name">Física</div><div class="exp-bar-wrap"><div class="exp-bar" style="width:0%" data-target="18"></div></div></div><span class="exp-lvl">Iniciante</span></div>
+  </div>
+
+  <div class="sec-label">Conversas recentes</div>
+  <div class="conv-list" id="convList">
+    <div class="conv-item active">📐 Como calcular derivadas?</div>
+    <div class="conv-item">💻 O que é recursão?</div>
+    <div class="conv-item">🧬 Mitose vs Meiose</div>
+    <div class="conv-item">📜 Revolução Francesa</div>
+  </div>
+
+  <div class="sb-footer">
+    <div class="user-av" id="uAv">?</div>
+    <div class="user-info">
+      <div class="user-name" id="uName">Estudante</div>
+      <div class="user-plan">🐾 Plano Gratuito</div>
+    </div>
+  </div>
+
+</aside>
+
+<!-- ══════════════ MAIN ══════════════ -->
+<main class="main">
+
+  <div class="topbar">
+    <button class="btn-toggle" onclick="toggleSidebar()">
+      <svg viewBox="0 0 20 20" fill="currentColor"><rect y="3" width="20" height="2" rx="1"/><rect y="9" width="20" height="2" rx="1"/><rect y="15" width="20" height="2" rx="1"/></svg>
+    </button>
+    <div class="topbar-title" id="topTitle">Nova conversa</div>
+    <div class="topbar-badge">Doki 1.0</div>
+  </div>
+
+  <div class="chat-area" id="chatArea">
+
+    <!-- Welcome screen -->
+    <div class="welcome" id="welcome">
+
+      <div class="mascot-wrap">
+        <div class="mascot-ring"></div>
+        <div class="mascot-ring"></div>
+        <!-- Grande Shih Tzu animado -->
+        <svg class="mascot-svg" viewBox="0 0 110 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Corpo -->
+          <ellipse cx="52" cy="78" rx="30" ry="20" fill="#c9a96e"/>
+          <!-- Cabeça lateral direita -->
+          <circle cx="78" cy="47" r="22" fill="#e8c98a"/>
+          <!-- Orelhas longas shih tzu -->
+          <ellipse cx="65" cy="30" rx="9" ry="17" fill="#c9a96e" transform="rotate(-20 65 30)"/>
+          <ellipse cx="93" cy="30" rx="9" ry="17" fill="#c9a96e" transform="rotate(20 93 30)"/>
+          <!-- Pelo do rosto -->
+          <circle cx="78" cy="49" r="14.5" fill="#f0e0c0"/>
+          <!-- Olhos expressivos -->
+          <circle cx="73" cy="44" r="4.2" fill="#140600"/>
+          <circle cx="83" cy="44" r="4.2" fill="#140600"/>
+          <circle cx="74.5" cy="42.5" r="1.4" fill="white"/>
+          <circle cx="84.5" cy="42.5" r="1.4" fill="white"/>
+          <!-- Reflexo adicional -->
+          <circle cx="73.5" cy="45.5" r=".6" fill="white" opacity=".5"/>
+          <circle cx="83.5" cy="45.5" r=".6" fill="white" opacity=".5"/>
+          <!-- Nariz  -->
+          <ellipse cx="78" cy="52" rx="3.2" ry="2.4" fill="#2d0d00"/>
+          <!-- Narina -->
+          <ellipse cx="76.8" cy="52.5" rx=".8" ry=".5" fill="#1a0800" opacity=".5"/>
+          <ellipse cx="79.2" cy="52.5" rx=".8" ry=".5" fill="#1a0800" opacity=".5"/>
+          <!-- Boca feliz -->
+          <path d="M75 55 Q78 58 81 55" stroke="#2d0d00" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+          <!-- Bigodes -->
+          <line x1="66" y1="52.5" x2="75" y2="51.5" stroke="#bbb" stroke-width="1" opacity=".4"/>
+          <line x1="66" y1="55" x2="75" y2="53" stroke="#bbb" stroke-width=".8" opacity=".3"/>
+          <line x1="81" y1="51.5" x2="90" y2="52.5" stroke="#bbb" stroke-width="1" opacity=".4"/>
+          <line x1="81" y1="53" x2="90" y2="55" stroke="#bbb" stroke-width=".8" opacity=".3"/>
+          <!-- Patas traseiras -->
+          <rect x="24" y="86" width="12" height="20" rx="6" fill="#c9a96e"/>
+          <rect x="42" y="88" width="12" height="18" rx="6" fill="#c9a96e"/>
+          <!-- Pata esquerda frente -->
+          <rect x="60" y="84" width="12" height="22" rx="6" fill="#c9a96e"/>
+          <!-- PATA DIREITA DOBRADA/LEVANTADA -->
+          <path d="M76 80 Q82 68 94 73" stroke="#c9a96e" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <ellipse cx="95" cy="75" rx="7" ry="6" fill="#c9a96e"/>
+          <!-- Dedos pata levantada -->
+          <circle cx="91" cy="80" r="2.8" fill="#b8895a"/>
+          <circle cx="96" cy="81" r="2.8" fill="#b8895a"/>
+          <circle cx="100" cy="77" r="2.8" fill="#b8895a"/>
+          <!-- Cauda enrolada -->
+          <path d="M22 70 Q8 56 12 40 Q16 24 24 27" stroke="#c9a96e" stroke-width="8" stroke-linecap="round" fill="none"/>
+          <!-- Pelo do corpo (detalhes) -->
+          <ellipse cx="52" cy="75" rx="18" ry="10" fill="#d4a86a" opacity=".3"/>
+          <!-- Coleira dourada com pingente -->
+          <path d="M36 68 Q56 62 74 67" stroke="#e8c98a" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+          <circle cx="55" cy="70" r="4" fill="#e8c98a"/>
+          <rect x="52.5" y="68.5" width="5" height="4.5" rx="1.5" fill="#c9a96e"/>
+          <!-- Bochechas rosadas -->
+          <ellipse cx="71" cy="52" rx="4" ry="2.5" fill="#e8a090" opacity=".25"/>
+          <ellipse cx="85" cy="52" rx="4" ry="2.5" fill="#e8a090" opacity=".25"/>
+        </svg>
+      </div>
+
+      <h2>Olá! Eu sou a <em>Doki</em> 🐾</h2>
+      <p>Sua parceira de estudos que cresce com você. Quanto mais você me pergunta, mais eu me especializo nas suas matérias favoritas!</p>
+
+      <div class="chips">
+        <div class="chip" onclick="useChip(this)">📐 Como calcular derivadas?</div>
+        <div class="chip" onclick="useChip(this)">⚛️ O que é força gravitacional?</div>
+        <div class="chip" onclick="useChip(this)">🧬 Diferença entre mitose e meiose</div>
+        <div class="chip" onclick="useChip(this)">💻 O que é recursão em Python?</div>
+        <div class="chip" onclick="useChip(this)">📜 Por que ocorreu a Revolução Francesa?</div>
+        <div class="chip" onclick="useChip(this)">🌍 What is photosynthesis?</div>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="messages" id="msgs" style="display:none"></div>
+
+  </div>
+
+  <div class="input-zone">
+    <div class="input-inner">
+      <textarea
+        id="inputBox"
+        class="input-box"
+        placeholder="Pergunte qualquer coisa para a Doki... 🐾"
+        rows="1"
+        onkeydown="onKey(event)"
+        oninput="onInput(this)"
+      ></textarea>
+      <button class="btn-send" id="sendBtn" onclick="send()" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+    <div class="input-note">Doki pode cometer erros. Verifique informações importantes. <b>🐾 Doki 1.0</b></div>
+  </div>
+
+</main>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+//  CONFIGURAÇÃO — Troque pela URL do backend
+// ═══════════════════════════════════════════
+const API = 'http://localhost:8000/api/v1';
+let token = localStorage.getItem('doki_token') || null;
+let convId = null;
+let busy = false;
+
+// ── Patas flutuantes ─────────────────────
+(()=>{
+  const bg = document.getElementById('pawBg');
+  for(let i=0;i<14;i++){
+    const d=document.createElement('div');
+    d.className='paw-float';
+    d.textContent='🐾';
+    d.style.left=Math.random()*100+'vw';
+    d.style.animationDuration=(16+Math.random()*22)+'s';
+    d.style.animationDelay=-(Math.random()*28)+'s';
+    d.style.fontSize=(12+Math.random()*16)+'px';
+    bg.appendChild(d);
+  }
+})();
+
+// ── Anima barras de expertise ────────────
+setTimeout(()=>{
+  document.querySelectorAll('.exp-bar[data-target]').forEach(b=>{
+    b.style.width=b.dataset.target+'%';
+  });
+},300);
+
+// ── Sidebar ──────────────────────────────
+let sbOpen=true;
+function toggleSidebar(){
+  const sb=document.getElementById('sidebar');
+  const ov=document.getElementById('overlay');
+  if(window.innerWidth<=640){
+    sb.classList.toggle('mob-open');
+    ov.classList.toggle('show');
+  } else {
+    sbOpen=!sbOpen;
+    sb.classList.toggle('collapsed',!sbOpen);
+  }
+}
+
+// ── Input ────────────────────────────────
+function onInput(el){
+  el.style.height='auto';
+  el.style.height=Math.min(el.scrollHeight,190)+'px';
+  document.getElementById('sendBtn').disabled=!el.value.trim();
+}
+function onKey(e){
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}
+}
+function useChip(el){
+  const txt=el.textContent.replace(/^[^\w]+/,'').trim();
+  document.getElementById('inputBox').value=txt;
+  onInput(document.getElementById('inputBox'));
+  send();
+}
+function newChat(){
+  convId=null;
+  document.getElementById('welcome').style.display='flex';
+  document.getElementById('msgs').style.display='none';
+  document.getElementById('msgs').innerHTML='';
+  document.getElementById('topTitle').textContent='Nova conversa';
+  document.getElementById('inputBox').value='';
+  document.getElementById('sendBtn').disabled=true;
+}
+
+// ── Render markdown ───────────────────────
+function md(t){
+  return t
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/```[\w]*\n?([\s\S]*?)```/g,'<pre><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g,'<em>$1</em>')
+    .replace(/^## (.+)$/gm,'<h2>$1</h2>')
+    .replace(/^### (.+)$/gm,'<h3>$1</h3>')
+    .replace(/^> (.+)$/gm,'<blockquote>$1</blockquote>')
+    .replace(/^\- (.+)$/gm,'<li>$1</li>')
+    .replace(/^(\d+)\. (.+)$/gm,'<li>$2</li>')
+    .replace(/\n{2,}/g,'<br><br>').replace(/\n/g,'<br>');
+}
+
+// ── Add message ───────────────────────────
+const SUBJ={
+  matematica:{i:'📐',n:'Matemática'},fisica:{i:'⚛️',n:'Física'},
+  quimica:{i:'🧪',n:'Química'},biologia:{i:'🧬',n:'Biologia'},
+  historia:{i:'📜',n:'História'},geografia:{i:'🌍',n:'Geografia'},
+  portugues:{i:'📝',n:'Português'},ingles:{i:'🇺🇸',n:'Inglês'},
+  programacao:{i:'💻',n:'Programação'},filosofia:{i:'🏛️',n:'Filosofia'},
+  geral:{i:'💬',n:'Geral'},
+};
+function si(s){return(SUBJ[s]||SUBJ.geral).i}
+function sn(s){return(SUBJ[s]||SUBJ.geral).n}
+
+function showMsgs(){
+  document.getElementById('welcome').style.display='none';
+  document.getElementById('msgs').style.display='flex';
+}
+function addMsg(role,txt,subj,blocked){
+  showMsgs();
+  const c=document.getElementById('msgs');
+  const r=document.createElement('div');
+  r.className='msg-row msg-'+role;
+  if(role==='user'){
+    r.innerHTML=`<div class="bubble-user">${txt.replace(/</g,'&lt;')}</div>`;
+  } else {
+    const sb=subj?`<div class="subj-tag">${si(subj)} ${sn(subj)}</div>`:'';
+    const body=blocked
+      ?`<div class="blocked">🚫 ${txt}</div>`
+      :`<div class="doki-body">${md(txt)}</div>`;
+    r.innerHTML=`
+      <div class="doki-hdr">
+        <svg class="doki-av" viewBox="0 0 60 60" fill="none">
+          <ellipse cx="30" cy="40" rx="17" ry="11" fill="#c9a96e"/>
+          <circle cx="44" cy="27" r="12" fill="#e8c98a"/>
+          <circle cx="44" cy="28" r="8" fill="#f0e0c0"/>
+          <circle cx="41" cy="26" r="2.3" fill="#140600"/>
+          <circle cx="47" cy="26" r="2.3" fill="#140600"/>
+          <circle cx="41.7" cy="25.3" r=".75" fill="white"/>
+          <circle cx="47.7" cy="25.3" r=".75" fill="white"/>
+          <ellipse cx="44" cy="30" rx="2.1" ry="1.5" fill="#2d0d00"/>
+        </svg>
+        <span class="doki-nm">Doki</span>
+      </div>
+      ${sb}${body}`;
+  }
+  c.appendChild(r);
+  scrollBot();
+}
+function showTyping(){
+  showMsgs();
+  const c=document.getElementById('msgs');
+  const r=document.createElement('div');
+  r.className='msg-row msg-doki';r.id='trow';
+  r.innerHTML=`<div class="doki-hdr"><svg class="doki-av" viewBox="0 0 60 60" fill="none"><ellipse cx="30" cy="40" rx="17" ry="11" fill="#c9a96e"/><circle cx="44" cy="27" r="12" fill="#e8c98a"/><circle cx="44" cy="28" r="8" fill="#f0e0c0"/><circle cx="41" cy="26" r="2.3" fill="#140600"/><circle cx="47" cy="26" r="2.3" fill="#140600"/></svg><span class="doki-nm">Doki</span></div><div class="typing-wrap"><div class="t-dot"></div><div class="t-dot"></div><div class="t-dot"></div></div>`;
+  c.appendChild(r);scrollBot();
+}
+function rmTyping(){const r=document.getElementById('trow');if(r)r.remove();}
+function scrollBot(){const ca=document.getElementById('chatArea');ca.scrollTop=ca.scrollHeight;}
+
+// ── Add to conv list ──────────────────────
+function addConv(txt,subj){
+  const l=document.getElementById('convList');
+  l.querySelectorAll('.active').forEach(e=>e.classList.remove('active'));
+  const d=document.createElement('div');
+  d.className='conv-item active';
+  d.textContent=`${si(subj||'geral')} ${txt.slice(0,34)}${txt.length>34?'…':''}`;
+  l.prepend(d);
+}
+
+// ══════════════════════════════════════════
+//  SEND MESSAGE
+// ══════════════════════════════════════════
+async function send(){
+  const inp=document.getElementById('inputBox');
+  const txt=inp.value.trim();
+  if(!txt||busy)return;
+  inp.value='';inp.style.height='auto';
+  document.getElementById('sendBtn').disabled=true;
+  if(!convId) document.getElementById('topTitle').textContent=txt.length>42?txt.slice(0,42)+'…':txt;
+  addMsg('user',txt);
+  busy=true;showTyping();
+
+  try{
+    if(token){
+      // ── Modo API ──
+      const res=await fetch(`${API}/chat/message`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+        body:JSON.stringify({message:txt,conversation_id:convId}),
+      });
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      const d=await res.json();
+      convId=d.conversation_id;
+      rmTyping();
+      addMsg('assistant',d.response,d.subject,d.blocked);
+      addConv(txt,d.subject);
+    } else {
+      // ── Modo Demo ──
+      await new Promise(r=>setTimeout(r,1000+Math.random()*900));
+      rmTyping();
+      const r=demoReply(txt);
+      addMsg('assistant',r.t,r.s,false);
+      addConv(txt,r.s);
+    }
+  }catch(e){
+    rmTyping();
+    addMsg('assistant',`⚠️ Não consegui me conectar ao servidor.\n\n**Modo demo:** Você está vendo a interface, mas sem o backend rodando as respostas são simuladas.\n\nErro: \`${e.message}\``,'geral',false);
+  }
+  busy=false;
+}
+
+// ── Demo responses ────────────────────────
+function demoReply(t){
+  const tl=t.toLowerCase();
+  if(/matem|equa|deriv|integr|álgebr|cálcul|geometr/i.test(tl))
+    return{s:'matematica',t:`## Tópico detectado: Matemática 📐\n\nEstou em **modo demonstração**! Para respostas educacionais completas com meu sistema de especialização adaptativa, conecte o backend.\n\nSua pergunta: *"${t}"*\n\n📌 **Resumo:** Configure o backend e eu responderei com passo a passo completo!`};
+  if(/física|força|energia|veloci|acelera|massa|onda|elétric/i.test(tl))
+    return{s:'fisica',t:`## Tópico detectado: Física ⚛️\n\nModo demo ativo. Configure o backend para respostas completas!\n\n📌 **Resumo:** *"${t.slice(0,60)}"* — sua pergunta foi registrada.`};
+  if(/bio|célul|DNA|gene|foto|plant|animal|evoluc/i.test(tl))
+    return{s:'biologia',t:`## Tópico detectado: Biologia 🧬\n\nModo demo ativo. Siga o guia de instalação para ativar as respostas completas!\n\n📌 **Resumo:** Sua pergunta sobre biologia aguarda o backend.`};
+  if(/python|código|program|função|variáv|loop|array|java|html|css|sql/i.test(tl))
+    return{s:'programacao',t:`## Tópico detectado: Programação 💻\n\nModo demo ativo!\n\n\`\`\`python\n# Exemplo de como a Doki responderia:\ndef doki_responde(pergunta):\n    return "Resposta educacional completa aqui!"\n\`\`\`\n\n📌 **Resumo:** Conecte o backend para código real e explicações detalhadas.`};
+  if(/histór|guerra|revoluc|impér|repúblic|brasil|europa/i.test(tl))
+    return{s:'historia',t:`## Tópico detectado: História 📜\n\nModo demo — configure o backend para respostas históricas completas com contexto, causas e consequências!\n\n📌 **Resumo:** *"${t.slice(0,60)}"* — aguardando backend.`};
+  return{s:'geral',t:`## Olá! Sou a Doki 🐾\n\nEstou em **modo demonstração**. Você está vendo minha interface completa, mas para respostas educacionais reais preciso que o backend esteja rodando.\n\nVocê perguntou: *"${t}"*\n\n**Para ativar:**\n1. Siga o guia de instalação incluído no projeto\n2. Suba o backend gratuitamente\n3. Atualize a variável \`API\` no início do arquivo \`index.html\`\n\nAí você terá:\n- ✅ Respostas educacionais completas\n- ✅ Especialização adaptativa por matéria\n- ✅ Memória do seu histórico\n- ✅ Suporte a qualquer idioma\n\n📌 **Resumo:** Modo demo ativo. Configure o backend para usar a Doki completa! 🎓`};
+}
+
+// ── Load user ─────────────────────────────
+if(token){
+  fetch(`${API}/auth/me`,{headers:{'Authorization':`Bearer ${token}`}})
+    .then(r=>r.ok?r.json():null)
+    .then(u=>{if(!u)return;
+      const n=u.full_name||u.username;
+      document.getElementById('uName').textContent=n;
+      document.getElementById('uAv').textContent=n.charAt(0).toUpperCase();
+    }).catch(()=>{});
+}
+</script>
+</body>
+</html>
