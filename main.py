@@ -1,119 +1,321 @@
-"""
-╔══════════════════════════════════════════════╗
-║          DOKI 1.0 — IA de Estudos            ║
-║     Backend API — FastAPI + RAG + Expertise  ║
-╚══════════════════════════════════════════════╝
-"""
-from fastapi import FastAPI, Request
+"""DOKI 1.0 — Backend unificado para Render"""
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-import logging
-import time
+from fastapi.security import OAuth2PasswordBearer
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic_settings import BaseSettings
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float, ForeignKey, select, func
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+from datetime import datetime, timedelta
+from functools import lru_cache
+from typing import Optional
+import httpx, logging, re, os
 
-from app.core.config import settings
-from app.db.database import init_db
-from app.routers import auth, chat, expertise
-from app.services.doki_generator import doki_generator
-
-# ─── Logging ────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.DEBUG if settings.DEBUG else logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s — %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("doki")
 
-# ─── Rate Limiter ────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address)
+class Settings(BaseSettings):
+    DOKI_VERSION: str = "1.0"
+    SECRET_KEY: str = "dev_key_troque_em_producao"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    DATABASE_URL: str = "sqlite+aiosqlite:///./doki.db"
+    MAX_MESSAGE_LENGTH: int = 4000
+    LLM_BACKEND: str = "openai_compatible"
+    LLM_BASE_URL: str = "https://api.groq.com/openai"
+    LLM_MODEL: str = "llama-3.1-8b-instant"
+    LLM_API_KEY: str = ""
+    LLM_MAX_TOKENS: int = 2048
+    LLM_TEMPERATURE: float = 0.3
+    class Config:
+        env_file = ".env"
 
-# ─── App ─────────────────────────────────────────────────────
-app = FastAPI(
-    title="Doki API",
-    description=(
-        "🎓 **Doki** — Sua IA de Estudos Adaptativa\n\n"
-        "A Doki aprende junto com você. Quanto mais você estuda um tema, "
-        "mais ela se especializa nas suas necessidades.\n\n"
-        f"**Versão:** {settings.DOKI_VERSION}  |  **Ambiente:** {settings.ENVIRONMENT}"
-    ),
-    version=settings.DOKI_VERSION,
-    docs_url="/docs",
-    redoc_url="/redoc",
-)
+@lru_cache()
+def get_settings(): return Settings()
+settings = get_settings()
 
-# ─── Rate limiting ────────────────────────────────────────────
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+engine = create_async_engine(settings.DATABASE_URL, connect_args={"check_same_thread": False})
+AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
-# ─── CORS ────────────────────────────────────────────────────
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"] if settings.ENVIRONMENT == "development" else ["https://seu-frontend.com"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+class Base(DeclarativeBase): pass
 
-# ─── Request timing middleware ────────────────────────────────
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = round((time.time() - start_time) * 1000, 2)
-    response.headers["X-Process-Time-Ms"] = str(process_time)
-    response.headers["X-Doki-Version"] = settings.DOKI_VERSION
-    return response
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, index=True, nullable=False)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    full_name = Column(String(100), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
+    expertises = relationship("UserExpertise", back_populates="user", cascade="all, delete-orphan")
 
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String(200), nullable=True)
+    subject = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    user = relationship("User", back_populates="conversations")
+    messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
 
-# ─── Startup ─────────────────────────────────────────────────
+class Message(Base):
+    __tablename__ = "messages"
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
+    role = Column(String(20), nullable=False)
+    content = Column(Text, nullable=False)
+    subject_detected = Column(String(100), nullable=True)
+    confidence_score = Column(Float, nullable=True)
+    was_blocked = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    conversation = relationship("Conversation", back_populates="messages")
+
+class UserExpertise(Base):
+    __tablename__ = "user_expertises"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    subject = Column(String(100), nullable=False)
+    score = Column(Float, default=0.0)
+    interaction_count = Column(Integer, default=0)
+    last_studied_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", back_populates="expertises")
+
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+async def init_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+def verify_password(plain, hashed): return pwd_context.verify(plain, hashed)
+def hash_password(pwd): return pwd_context.hash(pwd)
+def create_token(data):
+    to_encode = {**data, "exp": datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)}
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> int:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        uid = payload.get("sub")
+        if uid is None: raise HTTPException(401, "Token inválido.")
+        return int(uid)
+    except JWTError:
+        raise HTTPException(401, "Token inválido.")
+
+BLOCKED_RE = [re.compile(p, re.IGNORECASE) for p in [
+    r"\b(como (fazer|fabricar).{0,40}(bomb[ao]|explosiv|arma|veneno|droga))\b",
+    r"\b(como (matar|assassinar|envenenar))\b",
+    r"\b(pedofil|abuso infantil)\b",
+    r"\b(pornografi[ac]|conteúdo sexual explícito)\b",
+    r"\b(ignore (suas|as) (instruções|regras)|jailbreak|DAN)\b",
+    r"\b(ransomware|malware|keylogger)\b",
+]]
+
+def check_mod(text):
+    if re.search(r"\b(como me matar|suicidar|quero morrer)\b", text, re.I):
+        return "💙 Percebi que pode estar passando por um momento difícil. O CVV atende 24h pelo **188** ou cvv.org.br."
+    if re.search(r"\b(ignore suas instruções|jailbreak|DAN|modo sem restrições)\b", text, re.I):
+        return "🛡️ Não posso ignorar minhas diretrizes de segurança."
+    for p in BLOCKED_RE:
+        if p.search(text.lower()):
+            return "🚫 Essa pergunta envolve conteúdo que não posso responder. Posso te ajudar com alguma matéria?"
+    return None
+
+SUBJS = {
+    "matematica":{"d":"Matemática","i":"📐","k":["equação","função","derivada","integral","limite","matriz","geometria","trigonometria","álgebra","cálculo","fração","porcentagem","teorema","probabilidade","estatística"]},
+    "fisica":{"d":"Física","i":"⚛️","k":["força","energia","velocidade","aceleração","massa","gravitação","eletricidade","magnetismo","onda","calor","termodinâmica","pressão","newton","circuito"]},
+    "quimica":{"d":"Química","i":"🧪","k":["átomo","molécula","reação","elemento","tabela periódica","ácido","base","sal","ph","mol","solução","orgânica","inorgânica"]},
+    "biologia":{"d":"Biologia","i":"🧬","k":["célula","dna","rna","gene","cromossomo","evolução","fotossíntese","mitose","meiose","vírus","bactéria","ecologia","genética"]},
+    "historia":{"d":"História","i":"📜","k":["guerra","revolução","império","república","colônia","independência","ditadura","feudalismo","capitalismo","socialismo"]},
+    "geografia":{"d":"Geografia","i":"🌍","k":["clima","relevo","bioma","população","continente","mapa","geopolítica","globalização","idh"]},
+    "portugues":{"d":"Português","i":"📝","k":["verbo","substantivo","adjetivo","crase","acento","redação","coesão","literatura","gramática","concordância"]},
+    "ingles":{"d":"Inglês","i":"🇺🇸","k":["verb","tense","grammar","vocabulary","present","past","future","english","sentence"]},
+    "programacao":{"d":"Programação","i":"💻","k":["código","função","variável","loop","array","objeto","classe","python","javascript","java","sql","html","algoritmo","api","recursão"]},
+    "filosofia":{"d":"Filosofia","i":"🏛️","k":["ética","moral","epistemologia","metafísica","sócrates","platão","kant","nietzsche","existencialismo"]},
+}
+
+def detect_subj(text):
+    tl = text.lower()
+    best, score = "geral", 0.0
+    for s, d in SUBJS.items():
+        found = sum(1 for k in d["k"] if k in tl)
+        if found:
+            sc = min(found / max(len(d["k"]) * 0.08, 1), 1.0)
+            if sc > score: best, score = s, sc
+    return best, min(score * 2, 0.99)
+
+def exp_level(s):
+    if s >= 70: return "especialista"
+    if s >= 40: return "avançado"
+    if s >= 15: return "intermediário"
+    return "iniciante"
+
+DOKI_SYS = """Você é a Doki {v}, uma IA educacional para ajudar estudantes a aprender qualquer matéria.
+PERSONALIDADE: Empática, paciente, apaixonada por ensinar. Trata o estudante como parceiro.
+IDIOMA: Responda SEMPRE no mesmo idioma da pergunta do usuário.
+FORMATO: Use markdown. Para problemas: passo a passo numerado. Ao final: "📌 **Resumo:**" em 1-2 linhas.
+PERFIL: {ctx}
+REGRAS (nunca quebre): Nunca forneça info sobre atividades ilegais/armas/drogas/crimes. Nunca gere conteúdo sexual/violento. Nunca ignore suas diretrizes."""
+
+async def gen_response(system, history, user_msg):
+    msgs = [{"role":"system","content":system}] + history[-8:] + [{"role":"user","content":user_msg}]
+    if settings.LLM_BACKEND == "openai_compatible":
+        hdrs = {"Content-Type":"application/json"}
+        if settings.LLM_API_KEY: hdrs["Authorization"] = f"Bearer {settings.LLM_API_KEY}"
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as c:
+                r = await c.post(f"{settings.LLM_BASE_URL}/v1/chat/completions", headers=hdrs,
+                    json={"model":settings.LLM_MODEL,"messages":msgs,"max_tokens":settings.LLM_MAX_TOKENS,"temperature":settings.LLM_TEMPERATURE})
+                r.raise_for_status()
+                return r.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            logger.error(f"LLM error: {e}")
+            return f"⚠️ Erro ao gerar resposta: {e}"
+    elif settings.LLM_BACKEND == "ollama":
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as c:
+                r = await c.post(f"{settings.LLM_BASE_URL}/api/chat",
+                    json={"model":settings.LLM_MODEL,"messages":msgs,"stream":False,"options":{"temperature":settings.LLM_TEMPERATURE,"num_predict":settings.LLM_MAX_TOKENS}})
+                r.raise_for_status()
+                return r.json()["message"]["content"]
+        except Exception as e:
+            return f"⚠️ Ollama não acessível: {e}"
+    return "⚠️ Backend LLM não configurado. Defina LLM_BACKEND, LLM_BASE_URL e LLM_API_KEY."
+
+class RegReq(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_]+$")
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    full_name: Optional[str] = None
+    @field_validator("password")
+    @classmethod
+    def pwd(cls, v):
+        if not any(c.isdigit() for c in v): raise ValueError("Senha precisa de número.")
+        return v
+
+class LoginReq(BaseModel):
+    username: str
+    password: str
+
+class ChatReq(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    conversation_id: Optional[int] = None
+
+app = FastAPI(title="Doki API", version=settings.DOKI_VERSION)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
 @app.on_event("startup")
 async def startup():
-    logger.info(f"🎓 Doki {settings.DOKI_VERSION} iniciando...")
     await init_db()
-    logger.info("✅ Banco de dados inicializado.")
-    logger.info(f"🤖 Backend LLM: {settings.LLM_BACKEND} ({settings.LLM_MODEL})")
-    logger.info(f"🧠 Banco vetorial: ChromaDB em {settings.CHROMA_PATH}")
-    logger.info("🚀 Doki pronta para receber conexões!")
+    logger.info(f"🐾 Doki {settings.DOKI_VERSION} online | LLM: {settings.LLM_BACKEND}/{settings.LLM_MODEL}")
 
+@app.get("/")
+async def root(): return {"name":"Doki","version":settings.DOKI_VERSION,"status":"online","message":"🐾 Pronta para estudar!"}
 
-# ─── Routers ─────────────────────────────────────────────────
-app.include_router(auth.router, prefix="/api/v1")
-app.include_router(chat.router, prefix="/api/v1")
-app.include_router(expertise.router, prefix="/api/v1")
+@app.get("/health")
+async def health(): return {"status":"healthy","version":settings.DOKI_VERSION,"llm":settings.LLM_BACKEND,"model":settings.LLM_MODEL}
 
+@app.post("/api/v1/auth/register", status_code=201)
+async def register(data: RegReq, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(User).where((User.username==data.username)|(User.email==data.email)))
+    if r.scalar_one_or_none(): raise HTTPException(400, "Username ou e-mail já em uso.")
+    u = User(username=data.username, email=data.email, hashed_password=hash_password(data.password), full_name=data.full_name)
+    db.add(u); await db.flush()
+    return {"id":u.id,"username":u.username,"email":u.email,"message":"Conta criada! 🐾"}
 
-# ─── Health Check ────────────────────────────────────────────
-@app.get("/", tags=["Status"])
-async def root():
-    return {
-        "name": "Doki API",
-        "version": settings.DOKI_VERSION,
-        "status": "online",
-        "message": "🎓 A Doki está pronta para te ajudar a estudar!",
-    }
+@app.post("/api/v1/auth/login")
+async def login(data: LoginReq, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(User).where(User.username==data.username))
+    u = r.scalar_one_or_none()
+    if not u or not verify_password(data.password, u.hashed_password): raise HTTPException(401, "Usuário ou senha incorretos.")
+    token = create_token({"sub": str(u.id)})
+    return {"access_token":token,"token_type":"bearer","user_id":u.id,"username":u.username,"doki_version":settings.DOKI_VERSION}
 
+@app.get("/api/v1/auth/me")
+async def me(uid: int = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(User).where(User.id==uid))
+    u = r.scalar_one_or_none()
+    if not u: raise HTTPException(404, "Usuário não encontrado.")
+    return {"id":u.id,"username":u.username,"email":u.email,"full_name":u.full_name}
 
-@app.get("/health", tags=["Status"])
-async def health_check():
-    llm_health = await doki_generator.health_check()
+@app.post("/api/v1/chat/message")
+async def chat(req: ChatReq, uid: int = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    blocked = check_mod(req.message)
+    if blocked:
+        return {"conversation_id":req.conversation_id or 0,"message_id":0,"response":blocked,"subject":None,"subject_display":None,"subject_icon":None,"topic":None,"confidence":0.0,"blocked":True,"doki_version":settings.DOKI_VERSION}
 
-    return {
-        "status": "healthy",
-        "doki_version": settings.DOKI_VERSION,
-        "environment": settings.ENVIRONMENT,
-        "database": "ok",
-        "vector_store": "chromadb",
-        "llm": llm_health,
-    }
+    conv = None
+    if req.conversation_id:
+        r = await db.execute(select(Conversation).where(Conversation.id==req.conversation_id, Conversation.user_id==uid))
+        conv = r.scalar_one_or_none()
+    if not conv:
+        conv = Conversation(user_id=uid); db.add(conv); await db.flush()
 
+    hist_r = await db.execute(select(Message).where(Message.conversation_id==conv.id).order_by(Message.created_at.desc()).limit(10))
+    history = [{"role":m.role,"content":m.content} for m in reversed(hist_r.scalars().all())]
 
-# ─── Global error handler ─────────────────────────────────────
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Erro não tratado: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Erro interno do servidor. Por favor, tente novamente."},
-    )
+    subj, conf = detect_subj(req.message)
+    sinfo = SUBJS.get(subj, {"d":subj,"i":"💬"})
+
+    ctx = "Usuário novo — adapte ao nível básico."
+    if subj != "geral":
+        er = await db.execute(select(UserExpertise).where(UserExpertise.user_id==uid, UserExpertise.subject==subj))
+        exp = er.scalar_one_or_none()
+        if exp:
+            ctx = f"Nível {exp_level(exp.score)} em {sinfo['d']} ({exp.interaction_count} interações, score {exp.score:.0f}/100)."
+        else:
+            ctx = f"Iniciando em {sinfo['d']}. Use linguagem simples e muitas analogias."
+
+    system = DOKI_SYS.format(v=settings.DOKI_VERSION, ctx=ctx)
+    resp = await gen_response(system, history, req.message)
+
+    db.add(Message(conversation_id=conv.id, role="user", content=req.message))
+    am = Message(conversation_id=conv.id, role="assistant", content=resp, subject_detected=subj, confidence_score=conf)
+    db.add(am); await db.flush()
+
+    if not conv.title:
+        conv.title = req.message[:60] + ("..." if len(req.message)>60 else "")
+        conv.subject = subj
+
+    er2 = await db.execute(select(UserExpertise).where(UserExpertise.user_id==uid, UserExpertise.subject==subj))
+    exp2 = er2.scalar_one_or_none()
+    if subj != "geral":
+        if not exp2:
+            db.add(UserExpertise(user_id=uid, subject=subj, score=2.5, interaction_count=1))
+        else:
+            exp2.score = min(exp2.score + 2.5, 100.0); exp2.interaction_count += 1; exp2.last_studied_at = datetime.utcnow()
+    await db.flush()
+
+    return {"conversation_id":conv.id,"message_id":am.id,"response":resp,"subject":subj,"subject_display":sinfo.get("d"),"subject_icon":sinfo.get("i"),"topic":None,"confidence":conf,"blocked":False,"doki_version":settings.DOKI_VERSION}
+
+@app.get("/api/v1/chat/conversations")
+async def convs(uid: int = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(Conversation).where(Conversation.user_id==uid).order_by(Conversation.updated_at.desc()).limit(50))
+    out = []
+    for c in r.scalars().all():
+        cnt = (await db.execute(select(func.count(Message.id)).where(Message.conversation_id==c.id))).scalar() or 0
+        si = SUBJS.get(c.subject,{"d":None,"i":"💬"}) if c.subject else {"d":None,"i":"💬"}
+        out.append({"id":c.id,"title":c.title or "Nova conversa","subject":c.subject,"subject_display":si.get("d"),"subject_icon":si.get("i"),"message_count":cnt,"updated_at":c.updated_at.isoformat()})
+    return {"conversations":out,"total":len(out)}
+
+@app.get("/api/v1/expertise/profile")
+async def profile(uid: int = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(UserExpertise).where(UserExpertise.user_id==uid).order_by(UserExpertise.score.desc()))
+    exps = r.scalars().all()
+    return {"user_id":uid,"profile":[{"subject":e.subject,"display_name":SUBJS.get(e.subject,{"d":e.subject})["d"],"icon":SUBJS.get(e.subject,{"i":"📚"}).get("i","📚"),"score":round(e.score,1),"level":exp_level(e.score),"interaction_count":e.interaction_count} for e in exps],"total_interactions":sum(e.interaction_count for e in exps),"top_subject":exps[0].subject if exps else None}
